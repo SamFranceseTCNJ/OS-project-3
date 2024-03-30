@@ -4,7 +4,7 @@
 int* logicalAddresses;
 int* pageNumbers;
 int* offsets;
-char** pageTable;
+char** physicalMem;
 
 int maskNum(int dec) {
     int mask = 0xffff;
@@ -17,9 +17,11 @@ int main(int argc, char** argv) {
     logicalAddresses = (int*)malloc(sizeof(int) * nAddresses);
     pageNumbers = (int*)malloc(sizeof(int) * nAddresses);
     offsets = (int*)malloc(sizeof(int) * nAddresses);
-    pageTable = (char**)malloc(sizeof(char *) * 256);
+    physicalMem = (char**)malloc(sizeof(char *) * 256);
+    int pageTable[256];
     for(int i = 0; i < 256; ++i) {
-        pageTable[i] = NULL;
+        pageTable[i] = -1;
+        physicalMem[i] = NULL;
     }
 
     for(int i = 0; i < nAddresses; i++) {
@@ -29,30 +31,32 @@ int main(int argc, char** argv) {
 
     FILE* backing = fopen("BACKING_STORE.bin", "rb");
     for(int i = 0; i < nAddresses; ++i) {
-        char* frameNumber;
+        int frameNumber;
         logicalAddresses[i] = maskNum(logicalAddresses[i]);
         offsets[i] = (logicalAddresses[i] & 0xff);
         pageNumbers[i] = ((logicalAddresses[i]>>8) & 0xff); 
+        int currPage = pageNumbers[i];
 
         //check if page is in page table
-        if(pageTable[pageNumbers[i]] != NULL) {
-            //if it is, get frame number
-            frameNumber = pageTable[i];
-        } else {
+        //if it is, get frame number
+        frameNumber = pageTable[currPage];
+        if(frameNumber == -1) {
             //if not, bring the page in from backing store
-            fseek(backing, pageNumbers[i]*256, SEEK_SET);
-            pageTable[pageNumbers[i]] = (char *)malloc(256 * sizeof(char));
-            size_t elements_read = fread(pageTable[pageNumbers[i]], sizeof(char), 256, backing);
-            if(elements_read != 256) {
-                printf("error reading from file\n");
-            }
+            fseek(backing, currPage*256, SEEK_SET);
+            int freeFrame = currPage; //find first free frame. in this case, current page number
+            physicalMem[freeFrame] = (char *)malloc(256 * sizeof(char));
+            fread(physicalMem[freeFrame], sizeof(char), 256, backing);
+
+            pageTable[currPage] = freeFrame;
+            frameNumber = pageTable[currPage];
+        } else {
+            printf("page found\n");
         }
         
     }
     fclose(backing);
-    //
 
-    printf("address 0: %d\n", logicalAddresses[0]);
+    printf("address 0 : %d\n", logicalAddresses[0]);
     printf("    page  : %d\n", pageNumbers[0]);
     printf("    offset: %d\n", offsets[0]);
     printf("address 999: %d\n", logicalAddresses[999]);
@@ -63,8 +67,8 @@ int main(int argc, char** argv) {
     free(pageNumbers);
     free(offsets);
     for(int i = 0; i < 256; ++i) {
-        free(pageTable[i]);
+        free(physicalMem[i]);
     }
-    free(pageTable);
+    free(physicalMem);
     return 0;
 }
