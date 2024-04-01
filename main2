@@ -10,10 +10,39 @@ int* pageNumbers;
 int* offsets;
 char* physicalMem;
 int* pageTable;
+int* fifoQueue;
+int fifoIndex = 0;
 
 // Mask the least significant 16 bits
 int maskNum(int dec) {
     return (dec & 0xFFFF);
+}
+
+// Function to initialize FIFO queue
+void initFIFO() {
+    fifoQueue = (int*)malloc(sizeof(int) * PAGE_TABLE_SIZE);
+    for (int i = 0; i < PAGE_TABLE_SIZE; ++i) {
+        fifoQueue[i] = -1;
+    }
+}
+
+// Function to handle FIFO page replacement
+void handlePageFault(int pageNumber, FILE* backing) {
+    int evictedPage = fifoQueue[fifoIndex];
+    fifoQueue[fifoIndex] = pageNumber;
+    fifoIndex = (fifoIndex + 1) % PAGE_TABLE_SIZE;
+
+    // Update page table
+    pageTable[pageNumber] = pageNumber; // Assume demand paging, so frame number is same as page number
+
+    // Read data from backing store
+    fseek(backing, pageNumber * PAGE_SIZE, SEEK_SET);
+    fread(physicalMem + (pageNumber * PAGE_SIZE), sizeof(char), PAGE_SIZE, backing);
+
+    // Evict page if necessary
+    if (evictedPage != -1) {
+        pageTable[evictedPage] = -1; // Mark the evicted page as invalid
+    }
 }
 
 int main(int argc, char** argv) {
@@ -33,6 +62,9 @@ int main(int argc, char** argv) {
         pageTable[i] = -1; // Mark all entries as invalid
     }
 
+    // Initialize FIFO queue
+    initFIFO();
+
     FILE* backing = fopen("BACKING_STORE.bin", "rb");
 
     for (int i = 0; i < nAddresses; ++i) {
@@ -46,16 +78,14 @@ int main(int argc, char** argv) {
 
         int frameNumber = pageTable[pageNumber];
         if (frameNumber == -1) { // Page fault
-            fseek(backing, pageNumber * PAGE_SIZE, SEEK_SET);
-            fread(physicalMem + (pageNumber * PAGE_SIZE), sizeof(char), PAGE_SIZE, backing);
-            pageTable[pageNumber] = pageNumber; // Assume demand paging, so frame number is same as page number
+            handlePageFault(pageNumber, backing);
             frameNumber = pageNumber;
         }
 
         int physicalAddress = (frameNumber * PAGE_SIZE) + offset;
         char value = physicalMem[physicalAddress];
 	
-	printf("Virtual Address: %d, Physical Address: %d, Value: %d\n", logicalAddresses[i], physicalAddress, value);
+	    printf("Virtual Address: %d, Physical Address: %d, Value: %d\n", logicalAddresses[i], physicalAddress, value);
 
         fprintf(out_f1,"%d\n", logicalAddresses[i]);
         fprintf(out_f2,"%d\n", physicalAddress);
@@ -71,6 +101,9 @@ int main(int argc, char** argv) {
     free(offsets);
     free(physicalMem);
     free(pageTable);
+    free(fifoQueue);
 
     return 0;
 }
+
+
