@@ -13,6 +13,15 @@ int* pageTable;
 int* fifoQueue;
 int fifoIndex = 0;
 
+int searchTLB(int pageNumber, int TLB[16][2]) {
+    for(int i = 0; i < 16; ++i) {
+        if(TLB[i][0] == pageNumber) {
+            return TLB[i][1];
+        }
+    }
+    return -1; //TLB miss
+}
+
 // Mask the least significant 16 bits
 int maskNum(int dec) {
     return (dec & 0xFFFF);
@@ -56,6 +65,13 @@ int main(int argc, char** argv) {
     offsets = (int*)malloc(sizeof(int) * nAddresses);
     physicalMem = (char*)malloc(sizeof(char) * PHYSICAL_MEM_SIZE);
     pageTable = (int*)malloc(sizeof(int) * PAGE_TABLE_SIZE);
+    int TLB[16][2];
+
+    //Initialize TLB
+    for(int i = 0; i < 16; ++i) {
+        TLB[i][0] = -1;
+        TLB[i][1] = -1;
+    }
 
     // Initialize page table
     for (int i = 0; i < PAGE_TABLE_SIZE; ++i) {
@@ -67,6 +83,8 @@ int main(int argc, char** argv) {
 
     FILE* backing = fopen("BACKING_STORE.bin", "rb");
 
+    int fifoTLBIndex = 0;
+    int TLBmisses = 0;
     for (int i = 0; i < nAddresses; ++i) {
         fscanf(fp, "%d", &logicalAddresses[i]);
         logicalAddresses[i] = maskNum(logicalAddresses[i]);
@@ -76,10 +94,21 @@ int main(int argc, char** argv) {
         int pageNumber = pageNumbers[i];
         int offset = offsets[i];
 
-        int frameNumber = pageTable[pageNumber];
-        if (frameNumber == -1) { // Page fault
-            handlePageFault(pageNumber, backing);
-            frameNumber = pageNumber;
+        //search TLB
+        int frameNumber = searchTLB(pageNumber, TLB);
+
+        if(frameNumber == -1) { //TLB miss
+            TLBmisses++;
+            frameNumber = pageTable[pageNumber];
+            if (frameNumber == -1) { // Page fault
+                handlePageFault(pageNumber, backing);
+                frameNumber = pageNumber;
+            }
+
+            //update TLB
+            TLB[fifoTLBIndex][0] = pageNumber;
+            TLB[fifoTLBIndex][1] = frameNumber;
+            fifoTLBIndex = (fifoTLBIndex + 1) % 16;
         }
 
         int physicalAddress = (frameNumber * PAGE_SIZE) + offset;
