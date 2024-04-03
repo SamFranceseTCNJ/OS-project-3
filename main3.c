@@ -1,5 +1,6 @@
 #include <stdio.h>
 #include <stdlib.h>
+#include <time.h>
 
 #define PAGE_TABLE_SIZE 256
 #define PAGE_SIZE 256
@@ -10,8 +11,7 @@ int* pageNumbers;
 int* offsets;
 char* physicalMem;
 int* pageTable;
-int* fifoQueue;
-int fifoIndex = 0;
+int* LRU_timestamps;
 
 int searchTLB(int pageNumber, int TLB[16][2]) {
     for(int i = 0; i < 16; ++i) {
@@ -27,38 +27,48 @@ int maskNum(int dec) {
     return (dec & 0xFFFF);
 }
 
-// Function to initialize FIFO queue
-void initFIFO() {
-    fifoQueue = (int*)malloc(sizeof(int) * PAGE_TABLE_SIZE);
+// Initialize LRU timestamps
+void initLRU() {
+    LRU_timestamps = (int*)malloc(sizeof(int) * PAGE_TABLE_SIZE);
     for (int i = 0; i < PAGE_TABLE_SIZE; ++i) {
-        fifoQueue[i] = -1;
+        LRU_timestamps[i] = 0;
     }
 }
 
-// Function to handle FIFO page replacement
-void handlePageFault(int pageNumber, FILE* backing) {
-    int evictedPage = fifoQueue[fifoIndex];
-    fifoQueue[fifoIndex] = pageNumber;
-    fifoIndex = (fifoIndex + 1) % PAGE_TABLE_SIZE;
+// Update timestamp for a page
+void updateLRU(int pageNumber) {
+    LRU_timestamps[pageNumber] = time(NULL);
+}
 
-    // Update page table
-    pageTable[pageNumber] = pageNumber; // Assume demand paging, so frame number is same as page number
+// Find the least recently used page
+int findLRUPage() {
+    int minTimestamp = LRU_timestamps[0];
+    int lruPage = 0;
+    for (int i = 1; i < PAGE_TABLE_SIZE; ++i) {
+        if (LRU_timestamps[i] < minTimestamp) {
+            minTimestamp = LRU_timestamps[i];
+            lruPage = i;
+        }
+    }
+    return lruPage;
+}
+
+// Function to handle LRU page replacement
+void handlePageFault(int pageNumber, FILE* backing) {
+    int lruPage = findLRUPage();
+    pageTable[lruPage] = pageNumber; // Update page table
+    updateLRU(lruPage); // Update LRU timestamp
 
     // Read data from backing store
     fseek(backing, pageNumber * PAGE_SIZE, SEEK_SET);
-    fread(physicalMem + (pageNumber * PAGE_SIZE), sizeof(char), PAGE_SIZE, backing);
-
-    // Evict page if necessary
-    if (evictedPage != -1) {
-        pageTable[evictedPage] = -1; // Mark the evicted page as invalid
-    }
+    fread(physicalMem + (lruPage * PAGE_SIZE), sizeof(char), PAGE_SIZE, backing);
 }
 
 int main(int argc, char** argv) {
     FILE* fp = fopen("addresses.txt", "r");
     FILE* out_f1 = fopen("out1.txt", "w"); // Open output file
-    FILE* out_f2 = fopen("out2.txt", "w"); 
-    FILE* out_f3 = fopen("out3.txt", "w"); 
+    FILE* out_f2 = fopen("out2.txt", "w");
+    FILE* out_f3 = fopen("out3.txt", "w");
     int nAddresses = 1000; // Assume 1000 addresses, as per the provided sample
     logicalAddresses = (int*)malloc(sizeof(int) * nAddresses);
     pageNumbers = (int*)malloc(sizeof(int) * nAddresses);
@@ -67,7 +77,7 @@ int main(int argc, char** argv) {
     pageTable = (int*)malloc(sizeof(int) * PAGE_TABLE_SIZE);
     int TLB[16][2];
 
-    //Initialize TLB
+    // Initialize TLB
     for(int i = 0; i < 16; ++i) {
         TLB[i][0] = -1;
         TLB[i][1] = -1;
@@ -78,8 +88,8 @@ int main(int argc, char** argv) {
         pageTable[i] = -1; // Mark all entries as invalid
     }
 
-    // Initialize FIFO queue
-    initFIFO();
+    // Initialize LRU timestamps
+    initLRU();
 
     FILE* backing = fopen("BACKING_STORE.bin", "rb");
 
@@ -94,10 +104,10 @@ int main(int argc, char** argv) {
         int pageNumber = pageNumbers[i];
         int offset = offsets[i];
 
-        //search TLB
+        // Search TLB
         int frameNumber = searchTLB(pageNumber, TLB);
 
-        if(frameNumber == -1) { //TLB miss
+        if(frameNumber == -1) { // TLB miss
             TLBmisses++;
             frameNumber = pageTable[pageNumber];
             if (frameNumber == -1) { // Page fault
@@ -105,7 +115,7 @@ int main(int argc, char** argv) {
                 frameNumber = pageNumber;
             }
 
-            //update TLB
+            // Update TLB
             TLB[fifoTLBIndex][0] = pageNumber;
             TLB[fifoTLBIndex][1] = frameNumber;
             fifoTLBIndex = (fifoTLBIndex + 1) % 16;
@@ -113,8 +123,8 @@ int main(int argc, char** argv) {
 
         int physicalAddress = (frameNumber * PAGE_SIZE) + offset;
         char value = physicalMem[physicalAddress];
-	
-	    printf("Virtual Address: %d, Physical Address: %d, Value: %d\n", logicalAddresses[i], physicalAddress, value);
+
+        printf("Virtual Address: %d, Physical Address: %d, Value: %d\n", logicalAddresses[i], physicalAddress, value);
 
         fprintf(out_f1,"%d\n", logicalAddresses[i]);
         fprintf(out_f2,"%d\n", physicalAddress);
@@ -130,8 +140,9 @@ int main(int argc, char** argv) {
     free(offsets);
     free(physicalMem);
     free(pageTable);
-    free(fifoQueue);
+    free(LRU_timestamps);
 
     return 0;
 }
+
 
