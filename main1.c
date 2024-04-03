@@ -53,6 +53,8 @@ int main(int argc, char** argv) {
 
     int fifoTLBIndex = 0;
     int TLBmisses = 0;
+    int pageFaults = 0;
+    int frameCnt = 0;
     for (int i = 0; i < nAddresses; ++i) {
         fscanf(fp, "%d", &logicalAddresses[i]);
         logicalAddresses[i] = maskNum(logicalAddresses[i]);
@@ -70,10 +72,12 @@ int main(int argc, char** argv) {
             frameNumber = pageTable[pageNumber];
 
             if (frameNumber == -1) { // Page fault
+                pageFaults++;
                 fseek(backing, pageNumber * PAGE_SIZE, SEEK_SET);
-                fread(physicalMem + (pageNumber * PAGE_SIZE), sizeof(char), PAGE_SIZE, backing);
-                pageTable[pageNumber] = pageNumber; // Assume demand paging, so frame number is same as page number
-                frameNumber = pageNumber;
+                fread(physicalMem + frameCnt*PAGE_SIZE, sizeof(char), PAGE_SIZE, backing);
+                pageTable[pageNumber] = frameCnt; // Assume demand paging, so frame number is same as page number
+                frameNumber = pageTable[pageNumber];
+                frameCnt++;
             }
 
             //update TLB
@@ -82,7 +86,7 @@ int main(int argc, char** argv) {
             fifoTLBIndex = (fifoTLBIndex + 1) % 16;
         }
 
-        int physicalAddress = (frameNumber * PAGE_SIZE) + offset;
+        int physicalAddress = (frameNumber << 8) | offset;
         char value = physicalMem[physicalAddress];
 	
 	printf("Virtual Address: %d, Physical Address: %d, Value: %d\n", logicalAddresses[i], physicalAddress, value);
