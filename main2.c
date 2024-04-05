@@ -3,7 +3,8 @@
 
 #define PAGE_TABLE_SIZE 256
 #define PAGE_SIZE 256
-#define PHYSICAL_MEM_SIZE (PAGE_TABLE_SIZE * PAGE_SIZE)
+#define NUMBER_OF_FRAMES 128
+#define PHYSICAL_MEM_SIZE (NUMBER_OF_FRAMES * PAGE_SIZE)
 
 int* logicalAddresses;
 int* pageNumbers;
@@ -37,21 +38,22 @@ void initFIFO() {
 
 // Function to handle FIFO page replacement
 void handlePageFault(int pageNumber, FILE* backing, int frameCnt) {
-    int evictedPage = fifoQueue[fifoIndex];
-    fifoQueue[fifoIndex] = pageNumber;
-    fifoIndex = (fifoIndex + 1) % PAGE_TABLE_SIZE;
+    //victim frame
+    int evictedFrame = frameCnt % NUMBER_OF_FRAMES;
 
-    // Update page table
-    pageTable[pageNumber] = frameCnt; // Assume demand paging, so frame number is same as page number
+    //find the page that the frame is holding
+    for(int i = 0; i < PAGE_TABLE_SIZE; ++i) {
+        if(pageTable[i] == evictedFrame) {
+            pageTable[i] = -1;
+        }
+    }
 
     // Read data from backing store
     fseek(backing, pageNumber * PAGE_SIZE, SEEK_SET);
-    fread(physicalMem + (frameCnt * PAGE_SIZE), sizeof(char), PAGE_SIZE, backing);
+    fread(physicalMem + (evictedFrame * PAGE_SIZE), sizeof(char), PAGE_SIZE, backing);
 
-    // Evict page if necessary
-    if (evictedPage != -1) {
-        pageTable[evictedPage] = -1; // Mark the evicted page as invalid
-    }
+    // Update page table
+    pageTable[pageNumber] = evictedFrame;
 }
 
 int main(int argc, char** argv) {
@@ -115,9 +117,9 @@ int main(int argc, char** argv) {
             fifoTLBIndex = (fifoTLBIndex + 1) % 16;
         }
 
-        int physicalAddress = (frameNumber << 8) + offset;
+        int physicalAddress = (frameNumber << 8) | offset;
         char value = physicalMem[physicalAddress];
-	
+
 	    printf("Virtual Address: %d, Physical Address: %d, Value: %d\n", logicalAddresses[i], physicalAddress, value);
 
         fprintf(out_f1,"%d\n", logicalAddresses[i]);
@@ -135,7 +137,8 @@ int main(int argc, char** argv) {
     free(physicalMem);
     free(pageTable);
     free(fifoQueue);
-
+    printf("page faults: %d\n", pageFaults);
+    printf("TLB hits: %d\n", nAddresses - TLBmisses);
     return 0;
 }
 
