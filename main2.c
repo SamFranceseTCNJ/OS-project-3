@@ -3,7 +3,7 @@
 
 #define PAGE_TABLE_SIZE 256
 #define PAGE_SIZE 256
-#define NUMBER_OF_FRAMES 512
+#define NUMBER_OF_FRAMES 128
 #define PHYSICAL_MEM_SIZE (NUMBER_OF_FRAMES * PAGE_SIZE)
 
 int* logicalAddresses;
