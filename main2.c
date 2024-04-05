@@ -3,7 +3,7 @@
 
 #define PAGE_TABLE_SIZE 256
 #define PAGE_SIZE 256
-#define NUMBER_OF_FRAMES 128
+#define NUMBER_OF_FRAMES 512
 #define PHYSICAL_MEM_SIZE (NUMBER_OF_FRAMES * PAGE_SIZE)
 
 int* logicalAddresses;
@@ -61,10 +61,7 @@ int main(int argc, char** argv) {
     FILE* out_f1 = fopen("out1.txt", "w"); // Open output file
     FILE* out_f2 = fopen("out2.txt", "w"); 
     FILE* out_f3 = fopen("out3.txt", "w"); 
-    int nAddresses = 1000; // Assume 1000 addresses, as per the provided sample
-    logicalAddresses = (int*)malloc(sizeof(int) * nAddresses);
-    pageNumbers = (int*)malloc(sizeof(int) * nAddresses);
-    offsets = (int*)malloc(sizeof(int) * nAddresses);
+    int nAddresses = 0; // Assume 1000 addresses, as per the provided sample
     physicalMem = (char*)malloc(sizeof(char) * PHYSICAL_MEM_SIZE);
     pageTable = (int*)malloc(sizeof(int) * PAGE_TABLE_SIZE);
     int TLB[16][2];
@@ -89,14 +86,16 @@ int main(int argc, char** argv) {
     int TLBmisses = 0;
     int pageFaults = 0;
     int frameCnt = 0;
-    for (int i = 0; i < nAddresses; ++i) {
-        fscanf(fp, "%d", &logicalAddresses[i]);
-        logicalAddresses[i] = maskNum(logicalAddresses[i]);
-        offsets[i] = (logicalAddresses[i] & 0xFF);
-        pageNumbers[i] = ((logicalAddresses[i] >> 8) & 0xFF);
+    char buffer[7];
+    while (fgets(buffer, 7, fp)) {
+        nAddresses++;
+        //fscanf(fp, "%d", &logicalAddresses[i]);
+        int logicalAddress = atoi(buffer) & 0xFFFF;
+        //offsets[i] = (logicalAddresses[i] & 0xFF);
+        //pageNumbers[i] = ((logicalAddresses[i] >> 8) & 0xFF);
 
-        int pageNumber = pageNumbers[i];
-        int offset = offsets[i];
+        int offset = logicalAddress & 0xFF;
+        int pageNumber = (logicalAddress >> 8) & 0xFF;
 
         //search TLB
         int frameNumber = searchTLB(pageNumber, TLB);
@@ -120,9 +119,9 @@ int main(int argc, char** argv) {
         int physicalAddress = (frameNumber << 8) | offset;
         char value = physicalMem[physicalAddress];
 
-	    printf("Virtual Address: %d, Physical Address: %d, Value: %d\n", logicalAddresses[i], physicalAddress, value);
+	    printf("Virtual Address: %d, Physical Address: %d, Value: %d\n", logicalAddress, physicalAddress, value);
 
-        fprintf(out_f1,"%d\n", logicalAddresses[i]);
+        fprintf(out_f1,"%d\n", logicalAddress);
         fprintf(out_f2,"%d\n", physicalAddress);
         fprintf(out_f3,"%d\n", value);
     }
@@ -131,13 +130,11 @@ int main(int argc, char** argv) {
     fclose(backing);
     fclose(out_f1); // Close the output file
 
-    free(logicalAddresses);
-    free(pageNumbers);
-    free(offsets);
     free(physicalMem);
     free(pageTable);
     free(fifoQueue);
     printf("page faults: %d\n", pageFaults);
+    printf("page fault rate: %f\n", (double)(pageFaults) / nAddresses);
     printf("TLB hits: %d\n", nAddresses - TLBmisses);
     return 0;
 }

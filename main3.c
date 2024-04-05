@@ -3,7 +3,8 @@
 
 #define PAGE_TABLE_SIZE 256
 #define PAGE_SIZE 256
-#define PHYSICAL_MEM_SIZE (PAGE_TABLE_SIZE * PAGE_SIZE)
+#define NUMBER_OF_FRAMES 512
+#define PHYSICAL_MEM_SIZE (NUMBER_OF_FRAMES * PAGE_SIZE)
 
 int* logicalAddresses;
 int* pageNumbers;
@@ -29,8 +30,8 @@ int maskNum(int dec) {
 
 // Function to initialize LRU tracker
 void initLRU() {
-    lruTracker = (int*)malloc(sizeof(int) * PAGE_TABLE_SIZE);
-    for (int i = 0; i < PAGE_TABLE_SIZE; ++i) {
+    lruTracker = (int*)malloc(sizeof(int) * NUMBER_OF_FRAMES);
+    for (int i = 0; i < NUMBER_OF_FRAMES; ++i) {
         lruTracker[i] = -1;
     }
 }
@@ -39,7 +40,7 @@ void initLRU() {
 void handlePageFault(int pageNumber, FILE* backing, int frameCnt) {
     int lruIndex = 0;
     int minCounter = lruTracker[0];
-    for (int i = 1; i < PAGE_TABLE_SIZE; ++i) {
+    for (int i = 1; i < NUMBER_OF_FRAMES; ++i) {
         if (lruTracker[i] < minCounter) {
             minCounter = lruTracker[i];
             lruIndex = i;
@@ -47,22 +48,22 @@ void handlePageFault(int pageNumber, FILE* backing, int frameCnt) {
     }
 
     // Evict the least recently used page
-    int evictedPage = lruIndex;
+    int evictedFrame = lruIndex;
+    for(int i = 0; i < PAGE_TABLE_SIZE; ++i) {
+        if(pageTable[i] == evictedFrame) {
+            pageTable[i] = -1;
+        }
+    }
 
     // Update page table
-    pageTable[pageNumber] = frameCnt; // Assume demand paging, so frame number is same as page number
+    pageTable[pageNumber] = evictedFrame; 
 
     // Update LRU tracker
-    lruTracker[pageNumber] = lruCounter++;
+    //lruTracker[evictedFrame] = lruCounter++;
 
     // Read data from backing store
     fseek(backing, pageNumber * PAGE_SIZE, SEEK_SET);
-    fread(physicalMem + (frameCnt * PAGE_SIZE), sizeof(char), PAGE_SIZE, backing);
-
-    // Evict page if necessary
-    if (evictedPage != -1) {
-        pageTable[evictedPage] = -1; // Mark the evicted page as invalid
-    }
+    fread(physicalMem + (evictedFrame * PAGE_SIZE), sizeof(char), PAGE_SIZE, backing);
 }
 
 int main(int argc, char** argv) {
@@ -70,10 +71,7 @@ int main(int argc, char** argv) {
     FILE* out_f1 = fopen("out1.txt", "w"); // Open output file
     FILE* out_f2 = fopen("out2.txt", "w"); 
     FILE* out_f3 = fopen("out3.txt", "w"); 
-    int nAddresses = 1000; // Assume 1000 addresses, as per the provided sample
-    logicalAddresses = (int*)malloc(sizeof(int) * nAddresses);
-    pageNumbers = (int*)malloc(sizeof(int) * nAddresses);
-    offsets = (int*)malloc(sizeof(int) * nAddresses);
+    int nAddresses = 0; // Assume 1000 addresses, as per the provided sample
     physicalMem = (char*)malloc(sizeof(char) * PHYSICAL_MEM_SIZE);
     pageTable = (int*)malloc(sizeof(int) * PAGE_TABLE_SIZE);
     int TLB[16][2];
@@ -98,14 +96,13 @@ int main(int argc, char** argv) {
     int TLBmisses = 0;
     int pageFaults = 0;
     int frameCnt = 0;
-    for (int i = 0; i < nAddresses; ++i) {
-        fscanf(fp, "%d", &logicalAddresses[i]);
-        logicalAddresses[i] = maskNum(logicalAddresses[i]);
-        offsets[i] = (logicalAddresses[i] & 0xFF);
-        pageNumbers[i] = ((logicalAddresses[i] >> 8) & 0xFF);
+    char buffer[7];
+    while (fgets(buffer, 7, fp)) {
+        nAddresses++;
+        int logicalAddress = maskNum(atoi(buffer));
 
-        int pageNumber = pageNumbers[i];
-        int offset = offsets[i];
+        int pageNumber = (logicalAddress >> 8) & 0xFF;
+        int offset = logicalAddress & 0xFF;
 
         //search TLB
         int frameNumber = searchTLB(pageNumber, TLB);
@@ -125,13 +122,16 @@ int main(int argc, char** argv) {
             TLB[fifoTLBIndex][1] = frameNumber;
             fifoTLBIndex = (fifoTLBIndex + 1) % 16;
         }
+        // Update LRU tracker
+        lruTracker[frameNumber] = lruCounter;
+        lruCounter++;
 
         int physicalAddress = (frameNumber << 8) + offset;
         char value = physicalMem[physicalAddress];
 	
-	    printf("Virtual Address: %d, Physical Address: %d, Value: %d\n", logicalAddresses[i], physicalAddress, value);
+	    printf("Virtual Address: %d, Physical Address: %d, Value: %d\n", logicalAddress, physicalAddress, value);
 
-        fprintf(out_f1,"%d\n", logicalAddresses[i]);
+        fprintf(out_f1,"%d\n", logicalAddress);
         fprintf(out_f2,"%d\n", physicalAddress);
         fprintf(out_f3,"%d\n", value);
     }
@@ -140,13 +140,12 @@ int main(int argc, char** argv) {
     fclose(backing);
     fclose(out_f1); // Close the output file
 
-    free(logicalAddresses);
-    free(pageNumbers);
-    free(offsets);
     free(physicalMem);
     free(pageTable);
     free(lruTracker);
-
+    printf("page faults: %d\n", pageFaults);
+    printf("page fault rate: %f\n", (double)(pageFaults) / nAddresses);
+    printf("TLB hits: %d\n", nAddresses - TLBmisses);
     return 0;
 }
 
